@@ -9,6 +9,11 @@ Indicador de racha de estudio: Un pequeño contador visual en la barra superior 
 Exportar fallos a PDF: Añadir un botón en la sección de historial o banco de fallos para descargar un PDF limpio con las preguntas falladas y sus justificaciones reglamentarias para poder repasar offline.
 
 Gestionar recuperar/cambiar contraseña
+Otros ajustes de perfil
+Gestionar envío de correos a usuarios
 
 
 
+
+Password db: 7lJyPHWQ90jmaoG9
+postgresql://postgres:[YOUR-PASSWORD]@db.ihtacxwbucbsagphtryo.supabase.co:5432/postgres
