@@ -13,11 +13,12 @@ from database import engine, SessionLocal
 import os
 from dotenv import load_dotenv
 
-# Configura tu clave secreta de Stripe (obténla en dashboard.stripe.com)
-load_dotenv()
-STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
-stripe.api_key = STRIPE_SECRET_KEY
+# Configura la clave leyendo la variable de entorno
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_PRICE_ID = "price_1U0RZlDyM24mNBUXuDyVBgzJ"  # Pega aquí tu ID de Stripe
+
+# Define la URL base del frontend usando un valor por defecto para local
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 # Esto crea físicamente el archivo de base de datos y las tablas si no existen
 models.Base.metadata.create_all(bind=engine)
@@ -484,8 +485,8 @@ def crear_checkout_session(datos: dict, db: Session = Depends(get_db)):
                 'quantity': 1,
             }],
             mode='subscription',
-            success_url='http://localhost:3000/?pago=exito',
-            cancel_url='http://localhost:3000/?pago=cancelado',
+            success_url=f"{FRONTEND_URL}/?pago=exito",
+            cancel_url=f"{FRONTEND_URL}/?pago=cancelado",
             client_reference_id=str(usuario_id),
             metadata={
                 'usuario_id': str(usuario_id),
