@@ -16,4 +16,4 @@ COPY . .
 EXPOSE 8000
 
 # Comando para arrancar el servidor (ajusta según tu framework, ej: uvicorn main:app)
-CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}]
+CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
