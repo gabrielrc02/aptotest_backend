@@ -1,5 +1,5 @@
 
-Despliegue en nube
+Despliegue en nube -> cambiar success_url y cancel_url
 
 
 Atajos de teclado: Habilitar las teclas A, B, C y D para seleccionar las respuestas y la tecla Enter para avanzar o entregar, agilizando drásticamente la simulación.
@@ -16,4 +16,4 @@ Gestionar envío de correos a usuarios
 
 
 Password db: 7lJyPHWQ90jmaoG9
-postgresql://postgres:[YOUR-PASSWORD]@db.ihtacxwbucbsagphtryo.supabase.co:5432/postgres
+postgresql://postgres:7lJyPHWQ90jmaoG9@db.ihtacxwbucbsagphtryo.supabase.co:5432/postgres
