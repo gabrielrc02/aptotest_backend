@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 # Configura la clave leyendo la variable de entorno
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_PRICE_ID = "price_1U0RZlDyM24mNBUXuDyVBgzJ"  # Pega aquí tu ID de Stripe
+endpoint_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
 
 # Define la URL base del frontend usando un valor por defecto para local
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
@@ -503,9 +504,6 @@ def crear_checkout_session(datos: dict, db: Session = Depends(get_db)):
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     payload = await request.body()
     sig_header = request.headers.get('stripe-signature')
-
-    # Clave secreta sin espacios al inicio
-    endpoint_secret = "whsec_42710eb3b62128a8e6a3a1861b16f1b86fcb60a5544bbf2f1e81aa45e7675a1e"
 
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
