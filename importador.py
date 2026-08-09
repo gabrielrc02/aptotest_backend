@@ -1,9 +1,17 @@
 import glob
 import pandas as pd
-from database import SessionLocal, engine
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 import models
 
-# Asegura que las tablas estén creadas en la base de datos
+# 1. Definimos la conexión directa a la base de datos de producción (Supabase)
+DATABASE_URL = "postgresql://postgres.ihtacxwbucbsagphtryo:7lJyPHWQ90jmaoG9@aws-1-eu-west-1.pooler.supabase.com:6543/postgres"
+
+# 2. Creamos el motor y la sesión local apuntando exclusivamente a esta URL
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# 3. Asegura que las tablas estén creadas en la base de datos de producción
 models.Base.metadata.create_all(bind=engine)
 
 def procesar_archivo_excel(ruta_archivo: str, db):
