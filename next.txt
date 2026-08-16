@@ -7,7 +7,7 @@ Exportar fallos a PDF: Añadir un botón en la sección de historial o banco de 
 Gestionar recuperar/cambiar contraseña
 Otros ajustes de perfil
 Gestionar envío de correos a usuarios
-
+j
 
 Password db: 7lJyPHWQ90jmaoG9
 postgresql://postgres:7lJyPHWQ90jmaoG9@db.ihtacxwbucbsagphtryo.supabase.co:5432/postgres
