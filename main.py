@@ -7,6 +7,9 @@ from pydantic import BaseModel
 from passlib.context import CryptContext
 import stripe
 import random
+import datetime
+import json
+from sqlalchemy.exc import IntegrityError
 
 import models
 from database import engine, SessionLocal
@@ -20,6 +23,7 @@ endpoint_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
 
 # Define la URL base del frontend usando un valor por defecto para local
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+PREGUNTAS_PRUEBA_GRATUITA = 10
 
 # Esto crea físicamente el archivo de base de datos y las tablas si no existen
 models.Base.metadata.create_all(bind=engine)
@@ -230,6 +234,204 @@ def generar_test(
     preguntas_barajadas = [barajar_opciones_pregunta(p) for p in seleccionadas]
 
     return {"preguntas": preguntas_barajadas}
+
+
+class IniciarPruebaGratisSchema(BaseModel):
+    usuario_id: int
+    oposicion_id: int
+
+
+class RespuestaPruebaGratisSchema(BaseModel):
+    pregunta_id: int
+    respuesta_usuario: Optional[str] = None
+
+
+class FinalizarPruebaGratisSchema(BaseModel):
+    usuario_id: int
+    intento_id: int
+    respuestas: List[RespuestaPruebaGratisSchema]
+
+
+def serializar_preguntas_prueba(preguntas):
+    """Genera una única versión del test para que una reanudación conserve las mismas opciones."""
+    return [barajar_opciones_pregunta(pregunta) for pregunta in preguntas]
+
+
+@app.get("/api/prueba-gratuita/{usuario_id}/estado")
+def obtener_estado_prueba_gratuita(usuario_id: int, db: Session = Depends(get_db)):
+    usuario = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    intento = (
+        db.query(models.IntentoPruebaGratis)
+        .filter(models.IntentoPruebaGratis.usuario_id == usuario_id)
+        .first()
+    )
+    if not intento:
+        return {"estado": "disponible", "preguntas": PREGUNTAS_PRUEBA_GRATUITA}
+
+    return {
+        "estado": "completada" if intento.finalizada_en else "pendiente",
+        "intento_id": intento.id,
+        "oposicion": {"id": intento.oposicion.id, "nombre": intento.oposicion.nombre},
+        "preguntas": len(json.loads(intento.preguntas_ids)),
+        "finalizada_en": intento.finalizada_en.isoformat() if intento.finalizada_en else None,
+    }
+
+
+@app.post("/api/prueba-gratuita/iniciar")
+def iniciar_prueba_gratuita(datos: IniciarPruebaGratisSchema, db: Session = Depends(get_db)):
+    usuario = db.query(models.Usuario).filter(models.Usuario.id == datos.usuario_id).first()
+    oposicion = db.query(models.Oposicion).filter(models.Oposicion.id == datos.oposicion_id).first()
+    if not usuario or not oposicion:
+        raise HTTPException(status_code=404, detail="Usuario u oposición no encontrados")
+
+    intento_existente = (
+        db.query(models.IntentoPruebaGratis)
+        .filter(models.IntentoPruebaGratis.usuario_id == datos.usuario_id)
+        .first()
+    )
+    if intento_existente:
+        if intento_existente.finalizada_en:
+            raise HTTPException(status_code=409, detail="Ya has utilizado tu simulacro gratuito de prueba.")
+        if intento_existente.oposicion_id != datos.oposicion_id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Ya elegiste {intento_existente.oposicion.nombre} para tu prueba. Puedes reanudar ese simulacro.",
+            )
+        return {
+            "intento_id": intento_existente.id,
+            "oposicion": {"id": intento_existente.oposicion.id, "nombre": intento_existente.oposicion.nombre},
+            "preguntas": json.loads(intento_existente.preguntas_generadas),
+            "reanudada": True,
+        }
+
+    tiene_suscripcion = (
+        db.query(models.Suscripcion)
+        .filter(
+            models.Suscripcion.usuario_id == datos.usuario_id,
+            models.Suscripcion.oposicion_id == datos.oposicion_id,
+        )
+        .first()
+    )
+    # También se contempla la relación histórica usada por el endpoint interno de compra.
+    if tiene_suscripcion or oposicion in usuario.oposiciones:
+        raise HTTPException(status_code=400, detail="Ya tienes acceso completo a esta oposición; no necesitas una prueba gratuita.")
+
+    preguntas = (
+        db.query(models.Pregunta)
+        .filter(models.Pregunta.oposicion_id == datos.oposicion_id)
+        .all()
+    )
+    if not preguntas:
+        raise HTTPException(status_code=404, detail="Esta oposición todavía no dispone de preguntas para la prueba.")
+
+    seleccionadas = random.sample(preguntas, min(len(preguntas), PREGUNTAS_PRUEBA_GRATUITA))
+    preguntas_generadas = serializar_preguntas_prueba(seleccionadas)
+    intento = models.IntentoPruebaGratis(
+        usuario_id=datos.usuario_id,
+        oposicion_id=datos.oposicion_id,
+        preguntas_ids=json.dumps([pregunta.id for pregunta in seleccionadas]),
+        preguntas_generadas=json.dumps(preguntas_generadas),
+    )
+    db.add(intento)
+    try:
+        db.commit()
+    except IntegrityError:
+        # La restricción única protege frente a dos clics/peticiones simultáneas.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="La prueba gratuita ya se está preparando o ya ha sido utilizada.")
+
+    db.refresh(intento)
+    return {
+        "intento_id": intento.id,
+        "oposicion": {"id": oposicion.id, "nombre": oposicion.nombre},
+        "preguntas": preguntas_generadas,
+        "reanudada": False,
+    }
+
+
+@app.post("/api/prueba-gratuita/finalizar")
+def finalizar_prueba_gratuita(datos: FinalizarPruebaGratisSchema, db: Session = Depends(get_db)):
+    intento = (
+        db.query(models.IntentoPruebaGratis)
+        .filter(
+            models.IntentoPruebaGratis.id == datos.intento_id,
+            models.IntentoPruebaGratis.usuario_id == datos.usuario_id,
+        )
+        .with_for_update()
+        .first()
+    )
+    if not intento:
+        raise HTTPException(status_code=404, detail="Intento de prueba no encontrado")
+    if intento.finalizada_en:
+        raise HTTPException(status_code=409, detail="Este simulacro gratuito ya fue corregido.")
+
+    preguntas_generadas = json.loads(intento.preguntas_generadas)
+    ids_esperados = {pregunta["id"] for pregunta in preguntas_generadas}
+    respuestas_por_pregunta = {respuesta.pregunta_id: respuesta.respuesta_usuario for respuesta in datos.respuestas}
+    if set(respuestas_por_pregunta) != ids_esperados or len(datos.respuestas) != len(ids_esperados):
+        raise HTTPException(status_code=400, detail="Las respuestas no corresponden al simulacro asignado.")
+
+    preguntas_bd = (
+        db.query(models.Pregunta)
+        .filter(models.Pregunta.id.in_(ids_esperados))
+        .all()
+    )
+    if len(preguntas_bd) != len(ids_esperados):
+        raise HTTPException(status_code=409, detail="No se pueden corregir las preguntas de este simulacro.")
+
+    respuestas_correctas = {pregunta["id"]: pregunta["respuesta_correcta"] for pregunta in preguntas_generadas}
+    aciertos = fallos = blancos = 0
+    detalles = []
+    for pregunta in preguntas_bd:
+        respuesta = respuestas_por_pregunta[pregunta.id]
+        respuesta_normalizada = respuesta.upper() if respuesta else None
+        if respuesta_normalizada not in {None, "A", "B", "C", "D"}:
+            raise HTTPException(status_code=400, detail="Una respuesta contiene un formato inválido.")
+        if not respuesta_normalizada:
+            resultado = "blanco"
+            blancos += 1
+        elif respuesta_normalizada == respuestas_correctas[pregunta.id]:
+            resultado = "acierto"
+            aciertos += 1
+        else:
+            resultado = "fallo"
+            fallos += 1
+        detalles.append((pregunta, resultado, respuesta_normalizada))
+
+    nota = round(max(0.0, aciertos - (fallos / 3)), 2)
+    examen = models.ExamenRealizado(
+        usuario_id=datos.usuario_id,
+        oposicion_id=intento.oposicion_id,
+        aciertos=aciertos,
+        fallos=fallos,
+        blancos=blancos,
+        nota=nota,
+    )
+    db.add(examen)
+    db.flush()
+    for pregunta, resultado, respuesta in detalles:
+        db.add(models.DetalleExamen(
+            examen_id=examen.id,
+            pregunta_id=pregunta.id,
+            tema=pregunta.tema,
+            resultado=resultado,
+            respuesta_usuario=respuesta,
+        ))
+
+    intento.finalizada_en = datetime.datetime.utcnow()
+    intento.examen_id = examen.id
+    db.commit()
+    return {
+        "mensaje": "Prueba gratuita corregida con éxito",
+        "examen_id": examen.id,
+        "aciertos": aciertos,
+        "fallos": fallos,
+        "blancos": blancos,
+        "nota": nota,
+    }
 
 # NUEVO: Modelos para recibir los datos del examen desde el frontend
 class DetalleExamenSchema(BaseModel):

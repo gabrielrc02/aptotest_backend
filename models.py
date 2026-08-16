@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Table, Boolean, Float
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Table, Boolean, Float, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
 import datetime
@@ -105,3 +105,22 @@ class DetalleExamen(Base):
 
     examen = relationship("ExamenRealizado", back_populates="detalles")
     pregunta = relationship("Pregunta")
+
+
+class IntentoPruebaGratis(Base):
+    """Un único simulacro de demostración, elegido y controlado por usuario."""
+    __tablename__ = "intentos_prueba_gratis"
+    __table_args__ = (UniqueConstraint("usuario_id", name="uq_intento_prueba_usuario"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False, index=True)
+    oposicion_id = Column(Integer, ForeignKey("oposiciones.id"), nullable=False, index=True)
+    preguntas_ids = Column(String, nullable=False)
+    preguntas_generadas = Column(String, nullable=False)
+    iniciada_en = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    finalizada_en = Column(DateTime, nullable=True)
+    examen_id = Column(Integer, ForeignKey("examenes_realizados.id"), nullable=True, unique=True)
+
+    usuario = relationship("Usuario")
+    oposicion = relationship("Oposicion")
+    examen = relationship("ExamenRealizado")

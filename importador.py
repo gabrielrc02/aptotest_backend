@@ -14,6 +14,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # 3. Asegura que las tablas estén creadas en la base de datos de producción
 models.Base.metadata.create_all(bind=engine)
 
+
 def procesar_archivo_excel(ruta_archivo: str, db):
     print(f"📂 Abriendo archivo: {ruta_archivo}...")
 
@@ -27,53 +28,68 @@ def procesar_archivo_excel(ruta_archivo: str, db):
     contador_saltadas = 0
 
     for index, fila in df.iterrows():
-        # 1. Obtenemos el nombre de la oposición desde el Excel
-        nombre_oposicion = fila.get('oposicion', 'Técnico y Cuadro Técnico ADIF')
+        # 1. Obtenemos el texto de la columna oposicion (ej: "Opo 1, Opo 2")
+        texto_oposiciones = fila.get('oposicion', 'Técnico y Cuadro Técnico ADIF')
 
-        # 2. Buscamos si la oposición ya existe en la base de datos
-        oposicion_db = db.query(models.Oposicion).filter(
-            (models.Oposicion.nombre == nombre_oposicion) | (models.Oposicion.codigo == nombre_oposicion)
-        ).first()
+        # Si la celda está vacía por error, le asignamos una por defecto
+        if pd.isna(texto_oposiciones) or not str(texto_oposiciones).strip():
+            texto_oposiciones = 'Técnico y Cuadro Técnico ADIF'
 
-        # 3. Si no existe, la creamos automáticamente al vuelo
-        if not oposicion_db:
-            oposicion_db = models.Oposicion(
-                nombre=nombre_oposicion,
-                codigo=nombre_oposicion.lower().replace(" ", "_")
-            )
-            db.add(oposicion_db)
-            db.commit()
-            db.refresh(oposicion_db)
-            print(f"✨ Oposición creada automáticamente en la BD: {nombre_oposicion}")
+        # Separamos las oposiciones por comas
+        nombres_oposiciones = [op.strip() for op in str(texto_oposiciones).split(',')]
 
         enunciado_actual = fila['enunciado']
 
-        # 4. Verificamos si la pregunta ya existe para esta oposición específica
-        existe = db.query(models.Pregunta).filter(
-            models.Pregunta.enunciado == enunciado_actual,
-            models.Pregunta.oposicion_id == oposicion_db.id
-        ).first()
+        # Como una misma pregunta puede ir a varias oposiciones,
+        # comprobaremos si la pregunta ya existe globalmente o por enunciado
+        # (O adaptamos la validación de duplicados)
 
-        if existe:
-            contador_saltadas += 1
-            continue
+        # Creamos la pregunta principal (si no existe ya con el mismo enunciado)
+        # Nota: Si tu modelo permite que una pregunta pertenezca a varias oposiciones
+        # a través de una relación de muchos a muchos o duplicando la fila de pregunta por oposición:
 
-        # 5. Creamos la pregunta vinculada a la oposición
-        nueva_pregunta = models.Pregunta(
-            oposicion_id=oposicion_db.id,
-            rama_destino=fila.get('rama'),
-            tema=fila['tema'],
-            enunciado=fila['enunciado'],
-            opcion_a=fila['opcion_a'],
-            opcion_b=fila['opcion_b'],
-            opcion_c=fila['opcion_c'],
-            opcion_d=fila['opcion_d'],
-            respuesta_correcta=fila['respuesta_correcta'],
-            justificacion=fila['justificacion'],
-            origen=fila.get('origen')
-        )
-        db.add(nueva_pregunta)
-        contador_importadas += 1
+        for nombre_oposicion in nombres_oposiciones:
+            # 2. Buscamos o creamos cada oposición individualmente
+            oposicion_db = db.query(models.Oposicion).filter(
+                (models.Oposicion.nombre == nombre_oposicion) | (models.Oposicion.codigo == nombre_oposicion)
+            ).first()
+
+            if not oposicion_db:
+                oposicion_db = models.Oposicion(
+                    nombre=nombre_oposicion,
+                    codigo=nombre_oposicion.lower().replace(" ", "_").replace("-", "_")
+                )
+                db.add(oposicion_db)
+                db.commit()
+                db.refresh(oposicion_db)
+                print(f"✨ Oposición creada automáticamente en la BD: {nombre_oposicion}")
+
+            # 3. Verificamos si esta pregunta ya existe PARA ESTA oposición específica
+            existe = db.query(models.Pregunta).filter(
+                models.Pregunta.enunciado == enunciado_actual,
+                models.Pregunta.oposicion_id == oposicion_db.id
+            ).first()
+
+            if existe:
+                contador_saltadas += 1
+                continue
+
+            # 4. Creamos una copia de la pregunta vinculada a cada oposición correspondiente
+            nueva_pregunta = models.Pregunta(
+                oposicion_id=oposicion_db.id,
+                rama_destino=fila.get('rama'),
+                tema=fila['tema'],
+                enunciado=fila['enunciado'],
+                opcion_a=fila['opcion_a'],
+                opcion_b=fila['opcion_b'],
+                opcion_c=fila['opcion_c'],
+                opcion_d=fila['opcion_d'],
+                respuesta_correcta=fila['respuesta_correcta'],
+                justificacion=fila['justificacion'],
+                origen=fila.get('origen')
+            )
+            db.add(nueva_pregunta)
+            contador_importadas += 1
 
     return contador_importadas, contador_saltadas
 
