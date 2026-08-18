@@ -1,6 +1,14 @@
 import os
+import sys
 import tempfile
 from pathlib import Path
+
+# GitHub Actions puede importar con ``tests`` como primer directorio. Añadimos
+# explícitamente la raíz del repositorio para que ``main`` y ``models`` sean
+# importables igual que al ejecutar la API.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 # La variable debe existir antes de importar la aplicación, porque la base de
 # datos se configura al cargar el módulo database.
