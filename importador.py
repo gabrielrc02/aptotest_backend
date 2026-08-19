@@ -57,7 +57,9 @@ def procesar_archivo_excel(ruta_archivo: str, db):
             if not oposicion_db:
                 oposicion_db = models.Oposicion(
                     nombre=nombre_oposicion,
-                    codigo=nombre_oposicion.lower().replace(" ", "_").replace("-", "_")
+                    codigo=nombre_oposicion.lower().replace(" ", "_").replace("-", "_"),
+                    categoria=fila.get('categoria') if not pd.isna(fila.get('categoria')) else 'ADIF',
+                    subcategoria=fila.get('subcategoria') if not pd.isna(fila.get('subcategoria')) else 'General'
                 )
                 db.add(oposicion_db)
                 db.commit()

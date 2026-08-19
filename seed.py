@@ -9,7 +9,9 @@ if not existe:
     # Creamos la oposición oficial de ADIF
     op_adif = models.Oposicion(
         nombre="Técnico y Cuadro Técnico ADIF",
-        codigo="tecnico_adif"
+        codigo="tecnico_adif",
+        categoria="ADIF",
+        subcategoria="Técnico"
     )
     db.add(op_adif)
     db.commit()

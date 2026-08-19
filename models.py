@@ -34,6 +34,8 @@ class Oposicion(Base):
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String, unique=True, index=True)  # Ej: "Técnico ADIF"
     codigo = Column(String, unique=True, index=True)  # Ej: "tecnico_adif"
+    categoria = Column(String, nullable=True, index=True)
+    subcategoria = Column(String, nullable=True, index=True)
     stripe_price_id = Column(String, nullable=True)
 
     preguntas = relationship("Pregunta", back_populates="oposicion")

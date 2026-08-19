@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Query, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 from typing import Optional, List
@@ -27,6 +28,20 @@ PREGUNTAS_PRUEBA_GRATUITA = 10
 
 # Esto crea físicamente el archivo de base de datos y las tablas si no existen
 models.Base.metadata.create_all(bind=engine)
+
+
+def asegurar_columnas_catalogo_oposiciones():
+    inspector = inspect(engine)
+    columnas = {columna["name"] for columna in inspector.get_columns("oposiciones")}
+
+    with engine.begin() as conn:
+        if "categoria" not in columnas:
+            conn.execute(text("ALTER TABLE oposiciones ADD COLUMN categoria VARCHAR"))
+        if "subcategoria" not in columnas:
+            conn.execute(text("ALTER TABLE oposiciones ADD COLUMN subcategoria VARCHAR"))
+
+
+asegurar_columnas_catalogo_oposiciones()
 
 app = FastAPI(title="AptoTest ADIF API")
 
@@ -98,6 +113,23 @@ def barajar_opciones_pregunta(pregunta):
 
     resultado["respuesta_correcta"] = nueva_respuesta
     return resultado
+
+
+def categoria_publica_oposicion(oposicion):
+    if oposicion.categoria:
+        return oposicion.categoria
+    if "ADIF" in (oposicion.nombre or "").upper():
+        return "ADIF"
+    return "Otras oposiciones"
+
+
+def subcategoria_publica_oposicion(oposicion):
+    if oposicion.subcategoria:
+        return oposicion.subcategoria
+    nombre = oposicion.nombre or ""
+    if "Técnico" in nombre or "TECNICO" in nombre.upper():
+        return "Técnico"
+    return "General"
 
 
 # NUEVO: Endpoint de Registro
@@ -628,8 +660,21 @@ def obtener_detalle_examen(examen_id: int, db: Session = Depends(get_db)):
 # 2. NUEVO: Listar todas las oposiciones disponibles en el catálogo de la academia
 @app.get("/api/oposiciones-disponibles")
 def listar_oposiciones_disponibles(db: Session = Depends(get_db)):
-    oposiciones = db.query(models.Oposicion).all()
-    return [{"id": op.id, "nombre": op.nombre, "codigo": op.codigo} for op in oposiciones]
+    oposiciones = db.query(models.Oposicion).order_by(
+        models.Oposicion.categoria.asc(),
+        models.Oposicion.subcategoria.asc(),
+        models.Oposicion.nombre.asc(),
+    ).all()
+    return [
+        {
+            "id": op.id,
+            "nombre": op.nombre,
+            "codigo": op.codigo,
+            "categoria": categoria_publica_oposicion(op),
+            "subcategoria": subcategoria_publica_oposicion(op),
+        }
+        for op in oposiciones
+    ]
 
 
 # 3. NUEVO: Comprar / Asignar una oposición a un usuario
